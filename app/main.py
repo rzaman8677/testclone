@@ -12,7 +12,7 @@ from app.resume import ResumeError, load_resume_text, require_resume_pdf
 from app.scoring import score_job
 from app.sources import fetch_source
 
-app = FastAPI(title="2027 Internship Agent", version="0.2.0")
+app = FastAPI(title="2027 Internship Agent", version="0.3.0")
 
 
 class ApplyRequest(BaseModel):
@@ -78,7 +78,11 @@ async def apply(req: ApplyRequest) -> dict:
     return {
         "filled": result.filled,
         "review": result.review,
+        "blocking_review": result.blocking_review,
         "generated_answers": result.generated_answers,
+        "navigation_log": result.navigation_log,
+        "pages_visited": result.pages_visited,
+        "final_url": result.final_url,
         "captcha_detected": result.captcha_detected,
         "resume_uploaded": result.resume_uploaded,
         "submitted": result.submitted,
