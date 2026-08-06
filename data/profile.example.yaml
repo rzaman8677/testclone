@@ -1,0 +1,40 @@
+first_name: ""
+last_name: ""
+email: ""
+phone: ""
+university: "Georgia Institute of Technology"
+degree: "B.S."
+major: "Computer Science"
+graduation: ""
+gpa: ""
+authorized_to_work_us: null
+sponsorship_required: null
+willing_to_relocate: true
+
+target_titles:
+  - software engineer
+  - software engineering
+  - machine learning
+  - ml engineer
+  - infrastructure
+  - distributed systems
+  - cloud
+  - backend
+
+target_keywords:
+  - python
+  - java
+  - aws
+  - distributed systems
+  - cloud
+  - machine learning
+  - infrastructure
+  - backend
+  - kubernetes
+  - pytorch
+
+excluded_keywords:
+  - senior
+  - staff
+  - principal
+  - phd required
