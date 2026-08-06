@@ -56,6 +56,14 @@ async def _question_for(control: Locator) -> str:
                         const legend = fieldset.querySelector('legend');
                         if (legend && legend.innerText.trim()) parts.unshift(legend.innerText.trim());
                     }
+                    const labelledBy = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean);
+                    for (const id of labelledBy) {
+                        const node = document.getElementById(id);
+                        if (node) {
+                            const t = (node.innerText || node.textContent || '').trim();
+                            if (t) parts.push(t);
+                        }
+                    }
                     let node = el.parentElement;
                     for (let depth = 0; node && depth < 3; depth++, node = node.parentElement) {
                         const candidate = node.querySelector('label, [data-automation-id*=label], [class*=label]');
@@ -166,11 +174,13 @@ async def _has_value(control: Locator) -> bool:
         tag = await control.evaluate("el => el.tagName.toLowerCase()")
         input_type = (await control.get_attribute("type") or "").lower()
         if input_type == "radio":
-            name = await control.get_attribute("name")
-            if name:
-                page = control.page
-                return await page.locator(f'input[type="radio"][name={json.dumps(name)}]:checked').count() > 0
-            return await control.is_checked()
+            return bool(
+                await control.evaluate(
+                    """el => el.name
+                        ? Array.from(document.querySelectorAll('input[type="radio"]')).some(r => r.name === el.name && r.checked)
+                        : !!el.checked"""
+                )
+            )
         if input_type == "checkbox":
             return await control.is_checked()
         if tag == "select":
@@ -209,11 +219,7 @@ async def _upload_resume_on_step(page: Page, resume_path: Path) -> bool:
     return uploaded
 
 
-async def _record_answer(
-    result: FillResult,
-    question: str,
-    decision: AnswerDecision,
-) -> None:
+async def _record_answer(result: FillResult, question: str, decision: AnswerDecision) -> None:
     result.filled.append(question)
     result.generated_answers.append(
         {
@@ -247,7 +253,8 @@ async def _fill_native_controls(
     result: FillResult,
 ) -> None:
     controls = page.locator(
-        'input:not([type="hidden"]):not([type="file"]):not([type="submit"]):not([type="button"]), textarea, select'
+        'input:not([type="hidden"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([role="combobox"]), '
+        'textarea, select:not([role="combobox"])'
     )
     processed_radio_groups: set[str] = set()
 
@@ -298,14 +305,15 @@ async def _fill_custom_comboboxes(
     job_context: str,
     result: FillResult,
 ) -> None:
-    combos = page.locator('[role="combobox"]')
+    combos = page.locator(
+        '[role="combobox"], button[aria-haspopup="listbox"], input[aria-autocomplete="list"]'
+    )
     for i in range(await combos.count()):
         combo = combos.nth(i)
         try:
             if not await combo.is_visible() or not await combo.is_enabled():
                 continue
-            tag = await combo.evaluate("el => el.tagName.toLowerCase()")
-            if tag in {"input", "select"} and await _has_value(combo):
+            if await _has_value(combo):
                 continue
         except Exception:
             continue
@@ -322,7 +330,7 @@ async def _fill_custom_comboboxes(
         answer = str(decision.answer)
         try:
             await combo.click()
-            await page.wait_for_timeout(150)
+            await page.wait_for_timeout(200)
             option = page.get_by_role("option", name=answer, exact=True).first
             if await option.count() == 0:
                 option = page.get_by_role("option", name=answer, exact=False).first
@@ -332,8 +340,13 @@ async def _fill_custom_comboboxes(
                 await option.click()
                 await _record_answer(result, question, decision)
             else:
+                await page.keyboard.press("Escape")
                 await _handle_unanswered(result, question, "Could not find a matching dropdown option.", required)
         except Exception:
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
             await _handle_unanswered(result, question, "Could not operate this custom dropdown.", required)
 
 
@@ -401,8 +414,7 @@ async def fill_application(
                     if message not in result.review:
                         result.review.append(message)
 
-            new_blocking = result.blocking_review[before_blocking:]
-            if new_blocking:
+            if result.blocking_review[before_blocking:]:
                 result.navigation_log.append(
                     {"step": step, "url": page.url, "action": "review", "reason": "required unanswered fields"}
                 )
