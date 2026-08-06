@@ -59,7 +59,9 @@ class Profile(BaseModel):
     major: str = "Computer Science"
     graduation: str = ""
     gpa: str = ""
+    school_year: str = ""
     current_student: bool | None = None
+    returning_to_school_after_internship: bool | None = None
 
     linkedin_url: str = ""
     github_url: str = ""
@@ -69,6 +71,7 @@ class Profile(BaseModel):
     authorized_to_work_us: bool | None = None
     sponsorship_required: bool | None = None
     willing_to_relocate: bool | None = None
+    available_full_internship: bool | None = None
 
     earliest_start_date: str = ""
     latest_end_date: str = ""
