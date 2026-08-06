@@ -37,6 +37,7 @@ def _display(value: Any) -> str | bool | None:
 # answer, they can put an explicit verified answer in profile.answer_overrides.
 NEVER_INFER = (
     "gender",
+    "pronoun",
     "race",
     "ethnicity",
     "veteran",
@@ -84,18 +85,24 @@ PROFILE_RULES: list[tuple[tuple[str, ...], str]] = [
 ]
 
 
-def deterministic_answer(question: str, profile: Profile) -> AnswerDecision | None:
+def _override_answer(question: str, profile: Profile) -> AnswerDecision | None:
     q = _norm(question)
-
-    # User-supplied verified answers have the highest priority.
     for key, value in profile.answer_overrides.items():
         if _norm(key) in q:
             return AnswerDecision(_display(value), 1.0, "profile_override")
+    return None
+
+
+def deterministic_answer(question: str, profile: Profile) -> AnswerDecision | None:
+    q = _norm(question)
+
+    override = _override_answer(question, profile)
+    if override:
+        return override
 
     for patterns, attr in PROFILE_RULES:
         if any(pattern in q for pattern in patterns):
-            value = getattr(profile, attr, None)
-            value = _display(value)
+            value = _display(getattr(profile, attr, None))
             if value not in (None, ""):
                 return AnswerDecision(value, 1.0, f"profile.{attr}")
 
@@ -132,10 +139,13 @@ async def answer_question(
     resume_text: str,
     job_context: str = "",
 ) -> AnswerDecision:
-    deterministic = deterministic_answer(question, profile)
-    if deterministic:
-        return deterministic
+    # An explicit user-verified override is allowed even for categories we never infer.
+    override = _override_answer(question, profile)
+    if override:
+        return override
 
+    # Prevent mixed questions such as "Are you a citizen or authorized to work?"
+    # from being answered with a narrower work-authorization field.
     if _looks_sensitive(question):
         return AnswerDecision(
             None,
@@ -144,6 +154,10 @@ async def answer_question(
             needs_review=True,
             reason="Sensitive/legal/self-identification question is never inferred from the resume.",
         )
+
+    deterministic = deterministic_answer(question, profile)
+    if deterministic:
+        return deterministic
 
     if not ENABLE_LLM_ANSWERS:
         return AnswerDecision(None, 0.0, "review", True, "LLM resume answers are disabled.")
