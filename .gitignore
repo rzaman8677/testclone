@@ -6,3 +6,4 @@ __pycache__/
 jobs.db
 application-preview.png
 data/profile.yaml
+data/resume.pdf
