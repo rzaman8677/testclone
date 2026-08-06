@@ -37,6 +37,18 @@ def _display(value: Any) -> str | bool | None:
     return str(value).strip()
 
 
+def _override_matches(question: str, key: str) -> bool:
+    q = _norm(question)
+    k = _norm(key)
+    if not k:
+        return False
+    if k in q:
+        return True
+    key_tokens = [token for token in k.split() if len(token) > 1]
+    question_tokens = set(q.split())
+    return len(key_tokens) >= 2 and all(token in question_tokens for token in key_tokens)
+
+
 NEVER_INFER = (
     "gender",
     "pronoun",
@@ -91,9 +103,8 @@ PROFILE_RULES: list[tuple[tuple[str, ...], str]] = [
 
 
 def _override_answer(question: str, profile: Profile) -> AnswerDecision | None:
-    q = _norm(question)
     for key, value in profile.answer_overrides.items():
-        if _norm(key) in q:
+        if _override_matches(question, key):
             return AnswerDecision(_display(value), 1.0, "profile_override")
     return None
 
