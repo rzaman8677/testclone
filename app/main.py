@@ -8,15 +8,16 @@ from pydantic import BaseModel
 from app.browser import fill_application
 from app.config import load_profile, load_sources
 from app.db import init_db, list_jobs, upsert_job
+from app.resume import ResumeError, load_resume_text, require_resume_pdf
 from app.scoring import score_job
 from app.sources import fetch_source
 
-app = FastAPI(title="2027 Internship Agent", version="0.1.0")
+app = FastAPI(title="2027 Internship Agent", version="0.2.0")
 
 
 class ApplyRequest(BaseModel):
     url: str
-    resume_path: str | None = None
+    job_context: str = ""
 
 
 @app.on_event("startup")
@@ -27,6 +28,20 @@ def startup() -> None:
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True}
+
+
+@app.get("/api/resume/status")
+def resume_status() -> dict:
+    try:
+        path = require_resume_pdf()
+        text = load_resume_text()
+        return {
+            "ready": True,
+            "filename": path.name,
+            "extractable_characters": len(text),
+        }
+    except ResumeError as exc:
+        return {"ready": False, "error": str(exc)}
 
 
 @app.post("/api/discover")
@@ -59,11 +74,13 @@ def jobs(limit: int = 200) -> list[dict]:
 async def apply(req: ApplyRequest) -> dict:
     if not req.url.startswith(("https://", "http://")):
         raise HTTPException(status_code=400, detail="Invalid application URL")
-    result = await fill_application(req.url, load_profile(), req.resume_path)
+    result = await fill_application(req.url, load_profile(), req.job_context)
     return {
         "filled": result.filled,
         "review": result.review,
+        "generated_answers": result.generated_answers,
         "captcha_detected": result.captcha_detected,
+        "resume_uploaded": result.resume_uploaded,
         "submitted": result.submitted,
     }
 
@@ -82,14 +99,25 @@ def dashboard() -> str:
     button{padding:10px 16px;border:0;border-radius:9px;cursor:pointer}
     .card{border:1px solid #262b33;border-radius:14px;padding:16px;margin:12px 0;background:#12161c}
     .meta{opacity:.72;font-size:14px}.score{font-weight:800}.reason{font-size:13px;opacity:.8}
-    a{color:#9cc2ff}.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:24px}
+    a{color:#9cc2ff}.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:24px;flex-wrap:wrap}
+    .ok{color:#89e5a7}.bad{color:#ff9b9b}
   </style>
 </head>
 <body>
   <h1>2027 Internship Agent</h1>
-  <div class="toolbar"><button onclick="discover()">Discover jobs</button><span id="status"></span></div>
+  <div class="toolbar">
+    <button onclick="discover()">Discover jobs</button>
+    <span id="status"></span>
+    <span id="resume"></span>
+  </div>
   <div id="jobs"></div>
 <script>
+async function loadResume(){
+  const r=await fetch('/api/resume/status').then(r=>r.json());
+  const el=document.getElementById('resume');
+  el.className=r.ready?'ok':'bad';
+  el.textContent=r.ready?`Resume ready: ${r.filename}`:`Resume missing: ${r.error}`;
+}
 async function load(){
   const jobs=await fetch('/api/jobs').then(r=>r.json());
   document.getElementById('jobs').innerHTML=jobs.map(j=>`<div class="card">
@@ -105,7 +133,7 @@ async function discover(){
   s.textContent=`Found ${r.discovered} jobs`;
   await load();
 }
-load();
+loadResume(); load();
 </script>
 </body>
 </html>
