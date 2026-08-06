@@ -15,7 +15,7 @@ def test_common_profile_questions_use_verified_values():
     )
 
     assert deterministic_answer("First name", profile).answer == "Raiyan"
-    assert deterministic_answer("What school do you attend?", profile).answer == "Georgia Institute of Technology"
+    assert deterministic_answer("University", profile).answer == "Georgia Institute of Technology"
     assert deterministic_answer("Expected graduation date", profile).answer == "May 2028"
     assert deterministic_answer("Are you legally authorized to work in the United States?", profile).answer == "Yes"
     assert deterministic_answer("Will you require sponsorship in the future?", profile).answer == "No"
@@ -25,7 +25,7 @@ def test_sensitive_question_is_not_inferred_from_resume():
     profile = Profile(authorized_to_work_us=True)
     decision = asyncio.run(
         answer_question(
-            "Are you a U.S. citizen or otherwise authorized to work in the United States?",
+            "Please provide your citizenship status.",
             profile,
             "Software engineering resume text",
         )
