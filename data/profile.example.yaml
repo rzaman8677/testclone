@@ -1,15 +1,44 @@
 first_name: ""
+middle_name: ""
 last_name: ""
+preferred_name: ""
 email: ""
 phone: ""
+
+address_line1: ""
+address_line2: ""
+city: ""
+state: ""
+postal_code: ""
+country: "United States"
+
 university: "Georgia Institute of Technology"
 degree: "B.S."
 major: "Computer Science"
 graduation: ""
 gpa: ""
+current_student: true
+
+linkedin_url: ""
+github_url: ""
+portfolio_url: ""
+
+over_18: true
 authorized_to_work_us: null
 sponsorship_required: null
 willing_to_relocate: true
+
+earliest_start_date: ""
+latest_end_date: ""
+preferred_locations: []
+
+# Put recurring verified answers here. The key only needs to be a distinctive
+# piece of the question. These answers take priority over resume/LLM answers.
+answer_overrides:
+  # "previously employed by this company": false
+  # "agree to privacy policy": true
+
+eeo_default: "review"
 
 target_titles:
   - software engineer
