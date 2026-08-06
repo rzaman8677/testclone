@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -103,9 +104,7 @@ async def _set_control_value(page: Page, control: Locator, answer: str | bool) -
             name = await control.get_attribute("name")
             group = page.locator('input[type="radio"]')
             if name:
-                group = page.locator('input[type="radio"]').filter(has=page.locator(f'[name="{name}"]'))
-                # Locator.filter(has=...) is not reliable for self matching; use an attribute locator when safe.
-                group = page.locator(f'input[type="radio"][name="{name}"]')
+                group = page.locator(f'input[type="radio"][name={json.dumps(name)}]')
             target = text.strip().lower()
             for i in range(await group.count()):
                 option = group.nth(i)
