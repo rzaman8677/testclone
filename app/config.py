@@ -15,6 +15,7 @@ MIN_AUTO_APPLY_SCORE = float(os.getenv("MIN_AUTO_APPLY_SCORE", "80"))
 MIN_REVIEW_SCORE = float(os.getenv("MIN_REVIEW_SCORE", "65"))
 ENABLE_LLM_ANSWERS = os.getenv("ENABLE_LLM_ANSWERS", "true").lower() == "true"
 ANSWER_MODEL = os.getenv("ANSWER_MODEL", "gpt-5.5")
+MAX_APPLICATION_STEPS = max(1, int(os.getenv("MAX_APPLICATION_STEPS", "15")))
 
 
 def _read_yaml(path: Path) -> dict:
