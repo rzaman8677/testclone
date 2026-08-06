@@ -191,6 +191,54 @@ async def _has_value(control: Locator) -> bool:
         return False
 
 
+async def _native_choices(page: Page, control: Locator) -> list[str]:
+    choices: list[str] = []
+    try:
+        tag = await control.evaluate("el => el.tagName.toLowerCase()")
+        input_type = (await control.get_attribute("type") or "").lower()
+        if tag == "select":
+            options = control.locator("option")
+            for i in range(await options.count()):
+                option = options.nth(i)
+                if await option.is_disabled():
+                    continue
+                label = (await option.inner_text()).strip()
+                value = (await option.get_attribute("value") or "").strip()
+                if label and (value or label.lower() not in {"select", "select one", "choose", "choose one", "--"}):
+                    choices.append(label)
+        elif input_type == "radio":
+            name = await control.get_attribute("name")
+            group = page.locator('input[type="radio"]')
+            if name:
+                group = page.locator(f'input[type="radio"][name={json.dumps(name)}]')
+            for i in range(await group.count()):
+                option = group.nth(i)
+                label = (await _radio_label(option)).strip()
+                value = (await option.get_attribute("value") or "").strip()
+                choice = label or value
+                if choice:
+                    choices.append(choice)
+    except Exception:
+        return []
+    return list(dict.fromkeys(choices))
+
+
+async def _visible_role_options(page: Page) -> list[str]:
+    choices: list[str] = []
+    options = page.get_by_role("option")
+    for i in range(min(await options.count(), 100)):
+        option = options.nth(i)
+        try:
+            if not await option.is_visible():
+                continue
+            text = (await option.inner_text()).strip()
+        except Exception:
+            continue
+        if text:
+            choices.append(text)
+    return list(dict.fromkeys(choices))
+
+
 async def _upload_resume_on_step(page: Page, resume_path: Path) -> bool:
     uploads = page.locator('input[type="file"]')
     count = await uploads.count()
@@ -281,11 +329,13 @@ async def _fill_native_controls(
             continue
 
         required = await is_required(control)
+        choices = await _native_choices(page, control)
         decision = await answer_question(
             question=question,
             profile=profile,
             resume_text=resume_text,
             job_context=job_context,
+            answer_choices=choices,
         )
 
         if decision.needs_review or decision.answer is None:
@@ -322,23 +372,48 @@ async def _fill_custom_comboboxes(
         if not question:
             continue
         required = await is_required(combo)
-        decision = await answer_question(question, profile, resume_text, job_context)
-        if decision.needs_review or decision.answer is None:
-            await _handle_unanswered(result, question, decision.reason, required)
-            continue
 
-        answer = str(decision.answer)
         try:
+            tag = await combo.evaluate("el => el.tagName.toLowerCase()")
             await combo.click()
             await page.wait_for_timeout(200)
+            choices = await _visible_role_options(page)
+
+            decision = await answer_question(
+                question,
+                profile,
+                resume_text,
+                job_context,
+                answer_choices=choices,
+            ) if choices else await answer_question(question, profile, resume_text, job_context)
+
+            if decision.needs_review or decision.answer is None:
+                await page.keyboard.press("Escape")
+                await _handle_unanswered(result, question, decision.reason, required)
+                continue
+
+            answer = str(decision.answer)
+
+            if not choices and tag == "input":
+                await combo.fill(answer)
+                await page.wait_for_timeout(400)
+                choices = await _visible_role_options(page)
+
             option = page.get_by_role("option", name=answer, exact=True).first
             if await option.count() == 0:
                 option = page.get_by_role("option", name=answer, exact=False).first
             if await option.count() == 0:
                 option = page.get_by_text(answer, exact=True).first
+
             if await option.count() > 0 and await option.is_visible():
                 await option.click()
                 await _record_answer(result, question, decision)
+            elif tag == "input" and not choices:
+                await combo.press("Enter")
+                if await _has_value(combo):
+                    await _record_answer(result, question, decision)
+                else:
+                    await _handle_unanswered(result, question, "Could not confirm the typeahead selection.", required)
             else:
                 await page.keyboard.press("Escape")
                 await _handle_unanswered(result, question, "Could not find a matching dropdown option.", required)
