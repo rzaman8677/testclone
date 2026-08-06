@@ -9,9 +9,12 @@ from app.models import Profile, SourceConfig
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 DB_PATH = Path(os.getenv("JOB_AGENT_DB", ROOT / "jobs.db"))
+RESUME_PATH = Path(os.getenv("RESUME_PATH", DATA_DIR / "resume.pdf")).expanduser()
 AUTO_SUBMIT = os.getenv("AUTO_SUBMIT", "false").lower() == "true"
 MIN_AUTO_APPLY_SCORE = float(os.getenv("MIN_AUTO_APPLY_SCORE", "80"))
 MIN_REVIEW_SCORE = float(os.getenv("MIN_REVIEW_SCORE", "65"))
+ENABLE_LLM_ANSWERS = os.getenv("ENABLE_LLM_ANSWERS", "true").lower() == "true"
+ANSWER_MODEL = os.getenv("ANSWER_MODEL", "gpt-5.5")
 
 
 def _read_yaml(path: Path) -> dict:
