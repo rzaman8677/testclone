@@ -17,7 +17,9 @@ degree: "B.S."
 major: "Computer Science"
 graduation: ""
 gpa: ""
+school_year: ""
 current_student: true
+returning_to_school_after_internship: null
 
 linkedin_url: ""
 github_url: ""
@@ -27,6 +29,7 @@ over_18: true
 authorized_to_work_us: null
 sponsorship_required: null
 willing_to_relocate: true
+available_full_internship: null
 
 earliest_start_date: ""
 latest_end_date: ""
@@ -37,6 +40,7 @@ preferred_locations: []
 answer_overrides:
   # "previously employed by this company": false
   # "agree to privacy policy": true
+  # "how did you hear about us": "Company careers site"
 
 eeo_default: "review"
 
