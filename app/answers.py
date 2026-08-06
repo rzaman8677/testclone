@@ -25,6 +25,10 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9+.#/ -]", " ", text.lower())).strip()
 
 
+def _contains(q: str, pattern: str) -> bool:
+    return re.search(rf"(?<![a-z0-9]){re.escape(pattern)}(?![a-z0-9])", q) is not None
+
+
 def _display(value: Any) -> str | bool | None:
     if value is None:
         return None
@@ -61,25 +65,28 @@ PROFILE_RULES: list[tuple[tuple[str, ...], str]] = [
     (("preferred name",), "preferred_name"),
     (("email", "email address"), "email"),
     (("phone", "phone number", "mobile number"), "phone"),
-    (("address line 1", "street address", "address"), "address_line1"),
+    (("address line 1", "street address"), "address_line1"),
     (("address line 2", "apartment", "suite"), "address_line2"),
     (("city",), "city"),
     (("state", "province"), "state"),
     (("zip code", "postal code", "postcode"), "postal_code"),
+    (("legally authorized", "authorized to work", "work authorization", "eligible to work"), "authorized_to_work_us"),
+    (("require sponsorship", "need sponsorship", "future sponsorship", "visa sponsorship", "immigration sponsorship"), "sponsorship_required"),
     (("country",), "country"),
-    (("university", "college", "school"), "university"),
+    (("university", "college", "school name", "name of school", "educational institution"), "university"),
     (("degree",), "degree"),
     (("major", "field of study"), "major"),
     (("graduation date", "expected graduation", "graduate date"), "graduation"),
     (("gpa", "grade point average"), "gpa"),
+    (("year in school", "academic year", "class standing"), "school_year"),
     (("currently a student", "current student", "enrolled student"), "current_student"),
+    (("returning to school", "return to school after", "return to your degree"), "returning_to_school_after_internship"),
     (("linkedin",), "linkedin_url"),
     (("github",), "github_url"),
     (("portfolio", "personal website", "website"), "portfolio_url"),
     (("18 years", "over 18", "at least 18"), "over_18"),
-    (("legally authorized", "authorized to work", "work authorization"), "authorized_to_work_us"),
-    (("require sponsorship", "need sponsorship", "future sponsorship", "visa sponsorship"), "sponsorship_required"),
     (("willing to relocate", "relocate"), "willing_to_relocate"),
+    (("full duration", "entire internship", "full internship", "12 weeks"), "available_full_internship"),
     (("earliest start", "available to start", "start date"), "earliest_start_date"),
     (("latest end", "end date"), "latest_end_date"),
 ]
@@ -101,7 +108,7 @@ def deterministic_answer(question: str, profile: Profile) -> AnswerDecision | No
         return override
 
     for patterns, attr in PROFILE_RULES:
-        if any(pattern in q for pattern in patterns):
+        if any(_contains(q, pattern) for pattern in patterns):
             value = _display(getattr(profile, attr, None))
             if value not in (None, ""):
                 return AnswerDecision(value, 1.0, f"profile.{attr}")
@@ -111,7 +118,7 @@ def deterministic_answer(question: str, profile: Profile) -> AnswerDecision | No
 
 def _looks_sensitive(question: str) -> bool:
     q = _norm(question)
-    return any(pattern in q for pattern in NEVER_INFER)
+    return any(_contains(q, pattern) for pattern in NEVER_INFER)
 
 
 def _parse_model_json(text: str) -> dict[str, Any] | None:
