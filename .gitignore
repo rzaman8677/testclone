@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+jobs.db
+application-preview.png
+data/profile.yaml
+data/resume.pdf
