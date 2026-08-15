@@ -87,6 +87,14 @@ def test_verified_consent_only_uses_explicit_profile_setting():
     assert configured.source == "profile.accept_terms_and_conditions"
 
 
+def test_generic_employment_dates_are_not_confused_with_internship_availability():
+    profile = Profile(earliest_start_date="May 2027", latest_end_date="August 2027")
+    assert deterministic_answer("Employment start date", profile) is None
+    assert deterministic_answer("Employment end date", profile) is None
+    assert deterministic_answer("What is your earliest available start date?", profile).answer == "May 2027"
+    assert deterministic_answer("What is your internship end date?", profile).answer == "August 2027"
+
+
 def test_verified_value_that_does_not_match_available_choice_stops_for_review():
     profile = Profile(answer_overrides={"preferred office": "Seattle"})
     decision = asyncio.run(
