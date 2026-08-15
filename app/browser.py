@@ -28,6 +28,7 @@ from app.navigation import (
 )
 from app.preflight import preflight_application
 from app.resume import ResumeError, load_resume_text, require_resume_pdf
+from app.retry import click_with_retry, goto_with_retry
 from app.session import new_context, save_context
 from app.workday import detect_manual_gate, prepare_workday_step, repair_workday_structured_sections
 
@@ -292,9 +293,6 @@ async def _upload_resume_on_step(page: Page, resume_path: Path) -> bool:
     if uploaded:
         return True
 
-    # Some ATS widgets create the file input only after an Upload button is
-    # clicked. Playwright's file-chooser API handles that without relying on a
-    # brittle hidden-input selector.
     buttons = page.get_by_role(
         "button",
         name=re.compile(r"(upload|attach).*(resume|résumé|cv)|(resume|résumé|cv).*(upload|attach)", re.IGNORECASE),
@@ -335,6 +333,8 @@ async def _handle_unanswered(result: FillResult, question: str, reason: str, req
 
 def _ambiguous_workday_history_field(question: str) -> bool:
     q = " ".join(question.lower().split())
+    if any(token in q for token in ("available to start", "earliest start", "latest end", "internship start", "internship end")):
+        return False
     patterns = (
         "company",
         "employer",
@@ -342,8 +342,12 @@ def _ambiguous_workday_history_field(question: str) -> bool:
         "position title",
         "start date",
         "end date",
+        "start month",
+        "start year",
+        "end month",
+        "end year",
     )
-    return any(q == pattern or q.endswith("| " + pattern) or q.startswith(pattern + " |") for pattern in patterns)
+    return any(pattern in q for pattern in patterns)
 
 
 async def _fill_native_controls(
@@ -505,7 +509,7 @@ async def _fill_current_step(
     await _fill_custom_comboboxes(page, profile, resume_text, job_context, result)
 
 
-async def _wait_for_human_if_configured(page: Page, reason: str, *, captcha: bool = False) -> bool:
+async def _wait_for_human_if_configured(page: Page, *, captcha: bool = False) -> bool:
     if MANUAL_HANDOFF_SECONDS <= 0:
         return False
     elapsed = 0
@@ -519,10 +523,10 @@ async def _wait_for_human_if_configured(page: Page, reason: str, *, captcha: boo
 
 
 def _checkpoint_status(result: FillResult) -> str:
-    if result.submitted:
+    if result.submitted or result.confirmation_text:
         return "SUBMITTED"
-    if result.confirmation_text:
-        return "SUBMITTED"
+    if any("Submit was clicked but no reliable confirmation" in item for item in result.blocking_review):
+        return "UNKNOWN_AFTER_SUBMIT"
     if result.blocking_review:
         if any("no longer" in item.lower() or "closed" in item.lower() for item in result.blocking_review):
             return "CLOSED"
@@ -608,154 +612,158 @@ async def fill_application(url: str, profile: Profile, job_context: str = "") ->
         last_step = step_offset
 
         try:
-            await page.goto(start_url, wait_until="domcontentloaded", timeout=60_000)
-
-            for run_step in range(1, MAX_APPLICATION_STEPS + 1):
-                step = step_offset + run_step
-                last_step = step
-                result.pages_visited = max(result.pages_visited, step)
-                result.final_url = page.url
-
-                confirmed, confirmation_text = await detect_confirmation(page)
-                if confirmed:
-                    result.submitted = True
-                    result.confirmation_text = confirmation_text
-                    break
-
-                closed_reason = await detect_closed_or_unavailable(page)
-                if closed_reason:
-                    result.blocking_review.append(f"Application page reports the role is unavailable: {closed_reason}")
-                    break
-
-                gate = await detect_manual_gate(page)
-                if gate:
-                    result.navigation_log.append({"step": step, "url": page.url, "action": "human_handoff", "reason": gate})
-                    if not await _wait_for_human_if_configured(page, gate):
-                        result.blocking_review.append(gate)
-                        break
-
-                if await _captcha_present(page):
-                    result.captcha_detected = True
-                    result.navigation_log.append({"step": step, "url": page.url, "action": "human_handoff", "reason": "captcha"})
-                    if not await _wait_for_human_if_configured(page, "captcha", captcha=True):
-                        result.blocking_review.append("CAPTCHA/human verification requires manual completion")
-                        break
-                    result.captcha_detected = False
-
-                if ats_kind == ATSKind.WORKDAY:
-                    for detail in await prepare_workday_step(page):
-                        result.navigation_log.append({"step": step, "url": page.url, "action": "workday_prepare", "detail": detail})
-
-                fingerprint = await page_fingerprint(page)
-                seen_fingerprints[fingerprint] = seen_fingerprints.get(fingerprint, 0) + 1
-                if seen_fingerprints[fingerprint] > 2:
-                    result.blocking_review.append("Application navigation loop detected; manual review required")
-                    break
-
-                before_blocking = len(result.blocking_review)
-                await _fill_current_step(page, profile, resume_path, resume_text, job_context, result, ats_kind)
-
-                errors = await visible_validation_errors(page)
-                for error in errors:
-                    message = f"Validation: {error}"
-                    if message not in result.review:
-                        result.review.append(message)
-
-                await save_context(context, page, url)
-                result.session_saved = True
-                result.final_url = page.url
-                _save_checkpoint(url, result, step, fingerprint)
-
-                if result.blocking_review[before_blocking:]:
-                    result.navigation_log.append({"step": step, "url": page.url, "action": "review", "reason": "required unanswered fields"})
-                    break
-
-                action = await find_navigation_action(page)
-                if action is None or action.locator is None:
-                    confirmed, confirmation_text = await detect_confirmation(page)
-                    if confirmed:
-                        result.submitted = True
-                        result.confirmation_text = confirmation_text
-                        break
-                    result.blocking_review.append("Could not identify a safe Next/Continue/Review/Submit action on this layout")
-                    result.navigation_log.append({"step": step, "url": page.url, "action": "review", "reason": "no navigation action"})
-                    break
-
-                result.navigation_log.append({"step": step, "url": page.url, "action": action.kind, "label": action.label})
-
-                if action.kind == "submit":
-                    audit = await final_audit(
-                        page,
-                        resume_uploaded=result.resume_uploaded,
-                        blocking_review=result.blocking_review,
-                    )
-                    if not audit.ok:
-                        for issue in audit.issues:
-                            if issue not in result.blocking_review:
-                                result.blocking_review.append(issue)
-                        break
-
-                    if not AUTO_SUBMIT:
-                        result.review.append("Reached final submission; AUTO_SUBMIT is false")
-                        break
-
-                    before_submit = await page_fingerprint(page)
-                    await action.locator.click()
-                    await wait_for_step_change(page, before_submit, timeout_ms=10_000)
-                    submit_errors = await visible_validation_errors(page)
-                    if submit_errors:
-                        for error in submit_errors:
-                            result.blocking_review.append(f"Submit validation: {error}")
-                        break
-
-                    confirmed, confirmation_text = await detect_confirmation(page)
+            goto_error = await goto_with_retry(page, start_url, attempts=3, timeout_ms=60_000)
+            if goto_error is not None:
+                result.blocking_review.append(f"Could not open application after retries: {goto_error}")
+            else:
+                for run_step in range(1, MAX_APPLICATION_STEPS + 1):
+                    step = step_offset + run_step
+                    last_step = step
+                    result.pages_visited = max(result.pages_visited, step)
                     result.final_url = page.url
+
+                    confirmed, confirmation_text = await detect_confirmation(page)
                     if confirmed:
                         result.submitted = True
                         result.confirmation_text = confirmation_text
-                    else:
-                        result.blocking_review.append(
-                            "Submit was clicked but no reliable confirmation page was detected; verify manually before any retry"
-                        )
-                        checkpoint_application(
-                            url,
-                            current_url=page.url,
-                            status="UNKNOWN_AFTER_SUBMIT",
-                            step_index=step,
-                            pages_visited=result.pages_visited,
+                        break
+
+                    closed_reason = await detect_closed_or_unavailable(page)
+                    if closed_reason:
+                        result.blocking_review.append(f"Application page reports the role is unavailable: {closed_reason}")
+                        break
+
+                    gate = await detect_manual_gate(page)
+                    if gate:
+                        result.navigation_log.append({"step": step, "url": page.url, "action": "human_handoff", "reason": gate})
+                        if not await _wait_for_human_if_configured(page):
+                            result.blocking_review.append(gate)
+                            break
+
+                    if await _captcha_present(page):
+                        result.captcha_detected = True
+                        result.navigation_log.append({"step": step, "url": page.url, "action": "human_handoff", "reason": "captcha"})
+                        if not await _wait_for_human_if_configured(page, captcha=True):
+                            result.blocking_review.append("CAPTCHA/human verification requires manual completion")
+                            break
+                        result.captcha_detected = False
+
+                    if ats_kind == ATSKind.WORKDAY:
+                        for detail in await prepare_workday_step(page):
+                            result.navigation_log.append({"step": step, "url": page.url, "action": "workday_prepare", "detail": detail})
+
+                    fingerprint = await page_fingerprint(page)
+                    seen_fingerprints[fingerprint] = seen_fingerprints.get(fingerprint, 0) + 1
+                    if seen_fingerprints[fingerprint] > 2:
+                        result.blocking_review.append("Application navigation loop detected; manual review required")
+                        break
+
+                    before_blocking = len(result.blocking_review)
+                    await _fill_current_step(page, profile, resume_path, resume_text, job_context, result, ats_kind)
+
+                    errors = await visible_validation_errors(page)
+                    for error in errors:
+                        message = f"Validation: {error}"
+                        if message not in result.review:
+                            result.review.append(message)
+
+                    await save_context(context, page, url)
+                    result.session_saved = True
+                    result.final_url = page.url
+                    _save_checkpoint(url, result, step, fingerprint)
+
+                    if result.blocking_review[before_blocking:]:
+                        result.navigation_log.append({"step": step, "url": page.url, "action": "review", "reason": "required unanswered fields"})
+                        break
+
+                    action = await find_navigation_action(page)
+                    if action is None or action.locator is None:
+                        confirmed, confirmation_text = await detect_confirmation(page)
+                        if confirmed:
+                            result.submitted = True
+                            result.confirmation_text = confirmation_text
+                            break
+                        result.blocking_review.append("Could not identify a safe Next/Continue/Review/Submit action on this layout")
+                        result.navigation_log.append({"step": step, "url": page.url, "action": "review", "reason": "no navigation action"})
+                        break
+
+                    result.navigation_log.append({"step": step, "url": page.url, "action": action.kind, "label": action.label})
+
+                    if action.kind == "submit":
+                        audit = await final_audit(
+                            page,
                             resume_uploaded=result.resume_uploaded,
-                            submitted=False,
-                            navigation_log=result.navigation_log,
-                            generated_answers=result.generated_answers,
-                            review=result.review,
                             blocking_review=result.blocking_review,
                         )
-                    break
+                        if not audit.ok:
+                            for issue in audit.issues:
+                                if issue not in result.blocking_review:
+                                    result.blocking_review.append(issue)
+                            break
 
-                before_navigation = await page_fingerprint(page)
-                try:
-                    await action.locator.click()
-                except Exception as exc:
-                    result.blocking_review.append(f"Could not click {action.label!r}: {exc}")
-                    break
+                        if not AUTO_SUBMIT:
+                            result.review.append("Reached final submission; AUTO_SUBMIT is false")
+                            break
 
-                changed = await wait_for_step_change(page, before_navigation)
-                result.final_url = page.url
-                await save_context(context, page, url)
-                result.session_saved = True
-                _save_checkpoint(url, result, step, before_navigation)
-                if not changed:
-                    errors = await visible_validation_errors(page)
-                    if errors:
-                        for error in errors:
-                            result.blocking_review.append(f"Validation prevented navigation: {error}")
-                    else:
-                        result.blocking_review.append(f"Clicked {action.label!r}, but the application did not advance to a new step")
-                    break
-            else:
-                result.blocking_review.append(
-                    f"Stopped after {MAX_APPLICATION_STEPS} application steps to prevent an automation loop"
-                )
+                        before_submit = await page_fingerprint(page)
+                        click_error = await click_with_retry(page, action.locator, attempts=2)
+                        if click_error is not None:
+                            result.blocking_review.append(f"Could not click final Submit after retries: {click_error}")
+                            break
+                        await wait_for_step_change(page, before_submit, timeout_ms=10_000)
+                        submit_errors = await visible_validation_errors(page)
+                        if submit_errors:
+                            for error in submit_errors:
+                                result.blocking_review.append(f"Submit validation: {error}")
+                            break
+
+                        confirmed, confirmation_text = await detect_confirmation(page)
+                        result.final_url = page.url
+                        if confirmed:
+                            result.submitted = True
+                            result.confirmation_text = confirmation_text
+                        else:
+                            result.blocking_review.append(
+                                "Submit was clicked but no reliable confirmation page was detected; verify manually before any retry"
+                            )
+                            checkpoint_application(
+                                url,
+                                current_url=page.url,
+                                status="UNKNOWN_AFTER_SUBMIT",
+                                step_index=step,
+                                pages_visited=result.pages_visited,
+                                resume_uploaded=result.resume_uploaded,
+                                submitted=False,
+                                navigation_log=result.navigation_log,
+                                generated_answers=result.generated_answers,
+                                review=result.review,
+                                blocking_review=result.blocking_review,
+                            )
+                        break
+
+                    before_navigation = await page_fingerprint(page)
+                    click_error = await click_with_retry(page, action.locator, attempts=2)
+                    if click_error is not None:
+                        result.blocking_review.append(f"Could not click {action.label!r} after retries: {click_error}")
+                        break
+
+                    changed = await wait_for_step_change(page, before_navigation)
+                    result.final_url = page.url
+                    await save_context(context, page, url)
+                    result.session_saved = True
+                    _save_checkpoint(url, result, step, before_navigation)
+                    if not changed:
+                        errors = await visible_validation_errors(page)
+                        if errors:
+                            for error in errors:
+                                result.blocking_review.append(f"Validation prevented navigation: {error}")
+                        else:
+                            result.blocking_review.append(f"Clicked {action.label!r}, but the application did not advance to a new step")
+                        break
+                else:
+                    result.blocking_review.append(
+                        f"Stopped after {MAX_APPLICATION_STEPS} application steps to prevent an automation loop"
+                    )
 
         except Exception as exc:
             result.blocking_review.append(f"Browser/application failure: {exc}")
