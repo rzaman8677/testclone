@@ -1,7 +1,9 @@
 sources:
   # Add public ATS board identifiers here.
-  # Greenhouse token example: company board token from boards.greenhouse.io/<token>
-  # Ashby token example: board name from jobs.ashbyhq.com/<token>
+  # Greenhouse token: company board token from job-boards.greenhouse.io/<token>
+  # Ashby token: board name from jobs.ashbyhq.com/<token>
+  # Lever token: site name from jobs.lever.co/<token>
+  # Lever EU: use type lever_eu for jobs.eu.lever.co/<token>
   #
   # - type: greenhouse
   #   company: Example Company
@@ -10,5 +12,10 @@ sources:
   #
   # - type: ashby
   #   company: Example Startup
+  #   token: example
+  #   enabled: true
+  #
+  # - type: lever
+  #   company: Example Company
   #   token: example
   #   enabled: true
