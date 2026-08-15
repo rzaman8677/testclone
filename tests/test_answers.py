@@ -34,6 +34,20 @@ def test_sensitive_question_is_not_inferred_from_resume():
     assert decision.answer is None
 
 
+def test_sensitive_question_can_use_explicit_decline_policy():
+    profile = Profile(eeo_default="decline")
+    decision = asyncio.run(
+        answer_question(
+            "What is your race or ethnicity?",
+            profile,
+            "Resume text",
+            answer_choices=["Asian", "White", "Prefer not to answer"],
+        )
+    )
+    assert decision.answer == "Prefer not to answer"
+    assert decision.source == "profile.eeo_default"
+
+
 def test_verified_override_wins_for_recurring_question():
     profile = Profile(answer_overrides={"previously employed by Acme": False})
     decision = asyncio.run(
@@ -59,6 +73,18 @@ def test_verified_yes_no_answer_uses_exact_ats_choice():
     )
     assert decision.answer == "Yes"
     assert decision.needs_review is False
+
+
+def test_verified_consent_only_uses_explicit_profile_setting():
+    unset = deterministic_answer("I agree to the terms and conditions", Profile())
+    assert unset is None
+
+    configured = deterministic_answer(
+        "I agree to the terms and conditions",
+        Profile(accept_terms_and_conditions=True),
+    )
+    assert configured.answer == "Yes"
+    assert configured.source == "profile.accept_terms_and_conditions"
 
 
 def test_verified_value_that_does_not_match_available_choice_stops_for_review():
