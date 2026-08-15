@@ -22,7 +22,9 @@ def score_job(job: Job, profile: Profile) -> Job:
 
     title_matches = [x for x in profile.target_titles if x.lower() in title]
     if title_matches:
-        score += min(25, 12 + 4 * len(title_matches))
+        # A direct target-title hit should carry enough weight that a 2027
+        # internship with several matching skills can cross the default READY threshold.
+        score += min(25, 14 + 4 * len(title_matches))
         reasons.append(f"target title match: {', '.join(title_matches[:3])}")
 
     keyword_matches = [x for x in profile.target_keywords if x.lower() in text]

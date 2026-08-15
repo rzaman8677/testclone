@@ -35,13 +35,49 @@ earliest_start_date: ""
 latest_end_date: ""
 preferred_locations: []
 
+# Optional but strongly recommended for Workday. These verified rows let the
+# agent repair resume-parsed repeated Experience/Education sections without
+# asking an LLM to guess which employer/school a field belongs to.
+work_experience: []
+# Example:
+# work_experience:
+#   - company: "Example Company"
+#     title: "Software Engineering Intern"
+#     location: "Seattle, WA"
+#     start_date: "May 2026"
+#     end_date: "August 2026"
+#     current: false
+#     description: "Built ..."
+
+education_history: []
+# Example:
+# education_history:
+#   - school: "Georgia Institute of Technology"
+#     degree: "B.S."
+#     field_of_study: "Computer Science"
+#     location: "Atlanta, GA"
+#     start_date: "August 2025"
+#     end_date: "May 2028"
+#     gpa: ""
+
+how_heard_about_us: ""
+previous_employee: null
+
+# Legal/privacy choices are only automated when explicitly set. Keep null if
+# you want the agent to stop and ask you before agreeing to anything.
+accept_terms_and_conditions: null
+privacy_consent: null
+data_processing_consent: null
+marketing_consent: null
+
 # Put recurring verified answers here. The key only needs to be a distinctive
 # piece of the question. These answers take priority over resume/LLM answers.
 answer_overrides:
   # "previously employed by this company": false
-  # "agree to privacy policy": true
   # "how did you hear about us": "Company careers site"
 
+# "review" = stop on demographic/self-ID questions.
+# "decline" = choose a visible Prefer not to answer/Decline option when one exists.
 eeo_default: "review"
 
 target_titles:

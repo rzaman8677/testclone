@@ -39,6 +39,26 @@ class SourceConfig(BaseModel):
     enabled: bool = True
 
 
+class WorkExperience(BaseModel):
+    company: str
+    title: str
+    location: str = ""
+    start_date: str = ""
+    end_date: str = ""
+    current: bool = False
+    description: str = ""
+
+
+class EducationEntry(BaseModel):
+    school: str
+    degree: str = ""
+    field_of_study: str = ""
+    location: str = ""
+    start_date: str = ""
+    end_date: str = ""
+    gpa: str = ""
+
+
 class Profile(BaseModel):
     first_name: str = ""
     middle_name: str = ""
@@ -77,12 +97,29 @@ class Profile(BaseModel):
     latest_end_date: str = ""
     preferred_locations: list[str] = Field(default_factory=list)
 
+    # These structured histories are optional but strongly recommended for
+    # Workday. Workday can parse a resume into repeated Experience/Education
+    # sections; verified structured entries let the agent repair empty or
+    # obviously incomplete parsed rows without inventing information.
+    work_experience: list[WorkExperience] = Field(default_factory=list)
+    education_history: list[EducationEntry] = Field(default_factory=list)
+
+    how_heard_about_us: str = ""
+    previous_employee: bool | None = None
+
+    # Legal/privacy checkboxes are only automated when the user has explicitly
+    # configured a verified preference. Leaving them null forces review.
+    accept_terms_and_conditions: bool | None = None
+    privacy_consent: bool | None = None
+    data_processing_consent: bool | None = None
+    marketing_consent: bool | None = None
+
     # Exact or partial question text -> verified answer. Useful for recurring
     # questions whose answers are not naturally represented by a profile field.
     answer_overrides: dict[str, str | bool] = Field(default_factory=dict)
 
-    # Keep voluntary demographic/self-identification questions out of the
-    # resume-answering path. "review" is the safest default.
+    # "review" is safest. Set to "decline" only if you want the agent to pick
+    # a visible Prefer not to answer / Decline to self-identify option.
     eeo_default: str = "review"
 
     target_titles: list[str] = Field(default_factory=list)

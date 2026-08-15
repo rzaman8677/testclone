@@ -7,3 +7,5 @@ jobs.db
 application-preview.png
 data/profile.yaml
 data/resume.pdf
+data/browser_state/
+data/application_artifacts/
