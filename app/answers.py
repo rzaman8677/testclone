@@ -268,6 +268,7 @@ Confidence must be from 0 to 1. Use supported=false and an empty answer when evi
         instructions=instructions,
         input=prompt,
         max_output_tokens=350,
+        store=False,
     )
     data = _parse_model_json(response.output_text)
     if not data:
