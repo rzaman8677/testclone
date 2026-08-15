@@ -99,6 +99,12 @@ PROFILE_RULES: list[tuple[tuple[str, ...], str]] = [
     (("full duration", "entire internship", "full internship", "full-time internship", "full time internship", "40 hours", "12 weeks"), "available_full_internship"),
     (("earliest start", "available to start", "start date"), "earliest_start_date"),
     (("latest end", "end date"), "latest_end_date"),
+    (("how did you hear", "how did you learn", "recruiting source", "source of application"), "how_heard_about_us"),
+    (("previously employed", "former employee", "worked here before", "previous employee"), "previous_employee"),
+    (("terms and conditions", "terms of use", "agree to the terms"), "accept_terms_and_conditions"),
+    (("privacy policy", "privacy notice", "privacy consent"), "privacy_consent"),
+    (("data processing", "processing of my data", "process my personal data"), "data_processing_consent"),
+    (("marketing consent", "future opportunities", "contact me about future"), "marketing_consent"),
 ]
 
 
@@ -164,6 +170,27 @@ def _match_choice(answer: str | bool | None, choices: list[str]) -> str | None:
     return None
 
 
+def _decline_sensitive_choice(profile: Profile, choices: list[str]) -> str | None:
+    if profile.eeo_default.strip().lower() != "decline":
+        return None
+    preferred = (
+        "prefer not to answer",
+        "prefer not to say",
+        "decline to answer",
+        "decline to self identify",
+        "decline to self-identify",
+        "i do not wish to answer",
+        "i don't wish to answer",
+        "do not wish to self identify",
+        "do not wish to self-identify",
+    )
+    for pattern in preferred:
+        for choice in choices:
+            if pattern in _norm(choice):
+                return choice
+    return None
+
+
 async def answer_question(
     question: str,
     profile: Profile,
@@ -183,6 +210,9 @@ async def answer_question(
         return override
 
     if _looks_sensitive(question):
+        decline = _decline_sensitive_choice(profile, choices)
+        if decline:
+            return AnswerDecision(decline, 1.0, "profile.eeo_default")
         return AnswerDecision(
             None,
             0.0,
